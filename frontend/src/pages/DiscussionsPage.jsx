@@ -19,7 +19,8 @@ const DiscussionsPage = () => {
   const [activeTab, setActiveTab] = useState("Recent");
   const [questionTitle, setQuestionTitle] = useState("");
   const [questionDescription, setQuestionDescription] = useState("");
-  const [replyText, setReplyText] = useState("");
+  const [replyTexts, setReplyTexts] = useState({}); // Map of discussionId -> replyText
+  const [savedDiscussions, setSavedDiscussions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [uploadedImages, setUploadedImages] = useState([]);
@@ -231,9 +232,86 @@ const DiscussionsPage = () => {
   };
 
   const handleReply = async (discussionId) => {
+    const replyText = replyTexts[discussionId] || "";
     if (!replyText.trim()) return;
+    
     await addReply(discussionId, replyText);
-    setReplyText("");
+    // Clear only this discussion's reply text
+    setReplyTexts((prev) => {
+      const newTexts = { ...prev };
+      delete newTexts[discussionId];
+      return newTexts;
+    });
+  };
+
+  const handleLikeDiscussion = async (discussionId) => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(`/api/discussions/${discussionId}/like`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to like discussion");
+      }
+
+      const updatedDiscussion = await response.json();
+      setDiscussions((prevDiscussions) =>
+        prevDiscussions.map((d) => (d.id === discussionId ? updatedDiscussion : d))
+      );
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleLikeReply = async (discussionId, replyId) => {
+    try {
+      const token = localStorage.getItem("token");
+      console.log("Liking reply:", { discussionId, replyId });
+      
+      const response = await fetch(
+        `/api/discussions/${discussionId}/reply/${replyId}/like`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      console.log("Response status:", response.status);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error("Error response:", errorData);
+        throw new Error(errorData.message || "Failed to like reply");
+      }
+
+      const updatedDiscussion = await response.json();
+      console.log("Updated discussion:", updatedDiscussion);
+      
+      setDiscussions((prevDiscussions) =>
+        prevDiscussions.map((d) => (d.id === discussionId ? updatedDiscussion : d))
+      );
+    } catch (err) {
+      console.error("Like reply error:", err);
+      setError(err.message);
+    }
+  };
+
+  const handleSaveDiscussion = (discussionId) => {
+    setSavedDiscussions((prev) => {
+      if (prev.includes(discussionId)) {
+        return prev.filter((id) => id !== discussionId);
+      } else {
+        return [...prev, discussionId];
+      }
+    });
   };
 
   // Filter discussions based on active tab
@@ -428,7 +506,10 @@ const DiscussionsPage = () => {
                           {discussion.description}
                         </p>
                         <div className="flex flex-wrap items-center gap-4 sm:gap-6">
-                          <button className="flex items-center space-x-2 text-muted hover:text-red-500">
+                          <button 
+                            onClick={() => handleLikeDiscussion(discussion.id)}
+                            className="flex items-center space-x-2 text-muted hover:text-red-500 transition-colors"
+                          >
                             <Heart className="w-4 h-4" />
                             <span className="text-sm">
                               {discussion.likes?.length || 0}
@@ -440,8 +521,15 @@ const DiscussionsPage = () => {
                               {discussion.replies?.length || 0} replies
                             </span>
                           </button>
-                          <button className="flex items-center space-x-2 text-muted hover:text-yellow-500">
-                            <Bookmark className="w-4 h-4" />
+                          <button 
+                            onClick={() => handleSaveDiscussion(discussion.id)}
+                            className={`flex items-center space-x-2 transition-colors ${
+                              savedDiscussions.includes(discussion.id)
+                                ? "text-yellow-500"
+                                : "text-muted hover:text-yellow-500"
+                            }`}
+                          >
+                            <Bookmark className="w-4 h-4" fill={savedDiscussions.includes(discussion.id) ? "currentColor" : "none"} />
                             <span className="text-sm">Save</span>
                           </button>
                         </div>
@@ -498,7 +586,10 @@ const DiscussionsPage = () => {
                               </div>
                               <p className="text-muted mb-2">{reply.text}</p>
                               <div className="flex items-center space-x-4">
-                                <button className="flex items-center space-x-1 text-muted hover:text-red-500">
+                                <button 
+                                  onClick={() => handleLikeReply(discussion.id, reply.id)}
+                                  className="flex items-center space-x-1 text-muted hover:text-red-500 transition-colors"
+                                >
                                   <Heart className="w-3 h-3" />
                                   <span className="text-xs">
                                     {reply.likes?.length || 0}
@@ -523,8 +614,13 @@ const DiscussionsPage = () => {
                       <div className="flex-1">
                         <textarea
                           placeholder="Write your reply..."
-                          value={replyText}
-                          onChange={(e) => setReplyText(e.target.value)}
+                          value={replyTexts[discussion.id] || ""}
+                          onChange={(e) =>
+                            setReplyTexts((prev) => ({
+                              ...prev,
+                              [discussion.id]: e.target.value,
+                            }))
+                          }
                           rows={3}
                           className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent resize-none text-sm text-main placeholder-muted"
                         />
